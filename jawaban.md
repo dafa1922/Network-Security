@@ -88,7 +88,7 @@ Penjelasan :
   - Uji coba ping dan wget membuktikan konektivitas jaringan lapisan 3 serta akses HTTP internal antar-kontainer berjalan dengan sukses.
 
 
-## BAGIAN A
+## BAGIAN B
 
 ## B1. Docker Compose Multi-Container Terisolasi
 Membuat dan menjalankan arsitektur multi-container menggunakan Docker Compose pada jaringan internal terisolasi (`internal: true`) tanpa membuka *port* publik ke host.
@@ -145,11 +145,12 @@ Hasil Praktikum
 <img width="2880" height="940" alt="B3" src="https://github.com/user-attachments/assets/e031c976-1bef-42a7-b933-a03668bf5081" />
 Penjelasan :
   - Jumlah SYN_RECV sebelum serangan:
-Bernilai 0 (kondisi normal tanpa koneksi tertunda).
+    Bernilai 0 (kondisi normal tanpa koneksi tertunda).
   - Menjalankan serangan:
-Pengiriman paket SYN secara membabi-buta (flooding) dilakukan dari kontainer attacker ke port 80 target selama 15 detik.     - Jumlah SYN_RECV saat serangan: Melonjak naik (misalnya menjadi 1 atau lebih tinggi pada antrean terbatas lab) yang menunjukkan sumber daya           memori server mulai terbebani oleh handshake palsu.
+    Pengiriman paket SYN secara membabi-buta (flooding) dilakukan dari kontainer attacker ke port 80 target selama 15 detik.
+  - Jumlah SYN_RECV saat serangan: Melonjak naik (misalnya menjadi 1 atau lebih tinggi pada antrean terbatas lab) yang menunjukkan sumber daya           memori server mulai terbebani oleh handshake palsu.
   - Mitigasi (SYN Cookies):
-Fitur SYN cookies mengizinkan server merespons permintaan SYN tanpa mengalokasikan memori backlog di awal; server baru       mengalokasikan sumber daya setelah menerima paket ACK yang sah, sehingga memblokir potensi kelumpuhan memori akibat SYN flood.   
+    Fitur SYN cookies mengizinkan server merespons permintaan SYN tanpa mengalokasikan memori backlog di awal; server baru       mengalokasikan          sumber daya setelah menerima paket ACK yang sah, sehingga memblokir potensi kelumpuhan memori akibat SYN flood.   
   
   ## B4. DNS Exfiltration Lewat Subdomain
   Menyelundupkan data rahasia (NIM mahasiswa) ke luar jaringan melalui label subdomain pada kueri protokol DNS standar.  
