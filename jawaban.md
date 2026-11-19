@@ -172,3 +172,35 @@ NIM 24552011306 dikonversi ke format heksadesimal (3234353532303131333036), disi
 Karena protokol DNS (menggunakan port UDP 53) merupakan layanan fundamental yang mutlak diizinkan keluar-masuk jaringan korporat atau publik untuk aktivitas internet sehari-hari, sehingga firewall konvensional jarang mencurigai kueri DNS yang membawa muatan tersembunyi.
   - Indikator Deteksi:
 Adanya lonjakan frekuensi permintaan kueri DNS berulang dengan panjang label subdomain yang tidak normal, acak, atau memiliki tingkat entropi tinggi menuju domain eksternal yang sama. 
+
+
+# Tugas 1 (Pertemuan 1): Docker dan Volume
+```
+  docker volume create vol-k9
+  docker run --name w-k9 -v vol-k9:/data alpine sh -c 'echo 24552011306 > /data/laporan-k9.txt'
+  docker rm w-k9
+  docker run --rm -v vol-k9:/data alpine cat /data/laporan-k9.txt
+  docker compose -p k9 -f b/b1-compose/docker-compose.yml up -d
+  docker compose -p k9 -f b/b1-compose/docker-compose.yml exec attacker wget -qO- http://target
+  docker compose -p k9 -f b/b1-compose/docker-compose.yml down -v
+```
+Hasil Praktikum
+<img width="2878" height="1796" alt="TUGAS 1" src="https://github.com/user-attachments/assets/fa462f41-1e85-4492-951e-edd9e5a2d061" />
+Penjelasan :
+  - docker volume create vol-k9 membuat volume penyimpanan persisten di luar siklus hidup container.
+  - Container w-k9 menulis NIM 24552011306 ke /data/laporan-k9.txt pada volume vol-k9, lalu dihapus dengan docker rm w-k9. Data tetap utuh dan           terbaca kembali oleh container baru alpine yang me-mount volume yang sama.
+  - docker compose -p k9 -f b/b1-compose/docker-compose.yml up -d menjalankan jaringan k9_lab beserta layanan k9-target-1 dan k9-attacker-1 di latar belakang.
+  - docker compose ... exec attacker wget -qO- http://target membuktikan konektivitas dan akses HTTP internal dari attacker ke layanan target (Nginx) di dalam jaringan lab, lalu down -v membersihkan container, jaringan, dan volume proyek k9.   
+
+# Tugas 2 (Pertemuan 2): Kriptografi
+```
+  docker run --rm -v "$PWD":/work uts-openssl sh -c 'echo isi laporan k9 > laporan-k9.txt && openssl enc -aes-256-cbc -pbkdf2 -salt -in laporan-k9.txt -out laporan-k9.enc -pass pass:kunci-k9-2026 && sha256sum laporan-k9.txt && openssl enc -d -aes-256-cbc -pbkdf2 -in laporan-k9.enc -out hasil-k9.txt -pass pass:kunci-k9-2026 && sha256sum hasil-k9.txt'
+  docker run --rm -v "$PWD":/work uts-openssl sh -c 'openssl req -x509 -newkey rsa:2048 -nodes -keyout key-k9.pem -out cert-k9.pem -days 30 -subj /CN=k9.uts.local && openssl x509 -in cert-k9.pem -noout -subject -issuer -dates'
+```
+Hasil Praktikum
+<img width="2880" height="908" alt="TUGAS 2" src="https://github.com/user-attachments/assets/5264864f-b296-419c-8959-36f53a8bbed4" />
+Penjelasan :
+  - Perintah pertama membuat laporan-k9.txt, mengenkripsinya menjadi laporan-k9.enc memakai algoritma aes-256-cbc dengan derivasi kunci pbkdf2 dan salt menggunakan sandi kunci-k9-2026, lalu mendekripsinya kembali menjadi hasil-k9.txt.
+  - Kesamaan nilai hash SHA-256 antara laporan-k9.txt dan hasil-k9.txt membuktikan proses enkripsi-dekripsi berjalan tanpa merusak integritas isi file.
+  - Perintah kedua membangkitkan kunci privat RSA 2048-bit (key-k9.pem) dan sertifikat self-signed X.509 (cert-k9.pem) selama 30 hari untuk CN=k9.uts.local, sehingga nilai subject dan issuer sama karena sertifikat ditandatangani sendiri.
+
